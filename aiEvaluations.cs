@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using HarmonyLib;
 using PavonisInteractive.TerraInvicta;
 using PavonisInteractive.TerraInvicta.Tasks;
+using UnityEngine;
 
 namespace factionMissions.AIEvaluations {
 	[HarmonyPatch(typeof(AICouncilorMissionPlanner), nameof(AICouncilorMissionPlanner.GetPayoffForMissionTarget_Faction))]
@@ -30,7 +31,7 @@ namespace factionMissions.AIEvaluations {
 							}
 							break;
 						case "ResistPeacekeepers":
-							__result += 0.50f * AICouncilorMissionPlanner.ControlNationPayoff(faction, target.ref_region.nation.FirstNativeControlPoint(), controlPointPayoffs, campaignDuration_years);
+							__result = 0.50f * AICouncilorMissionPlanner.ControlNationPayoff(faction, target.ref_region.nation.FirstNativeControlPoint(), controlPointPayoffs, campaignDuration_years);
 							__result += 60f * UnityEngine.Mathf.Pow(target.ref_nation.unrest, 1.65f) * Math.Max(1f, target.ref_nation.unrest)/Math.Max(1f, target.ref_nation.unrestRestState);
 							break;
 						case "ResistCellNetwork":
@@ -89,12 +90,11 @@ namespace factionMissions.AIEvaluations {
 								__result -= 1f;
 							}
 							else {
-								__result += (235f - target.ref_nation.population_Millions) / 50f + (4f - target.ref_nation.inequality * 2f) + 5f * (65f - target.ref_nation.perCapitaGDP / 1000f);
+								__result = (235f - target.ref_nation.population_Millions) / 50f + (4f - target.ref_nation.inequality * 2f) + 5f * (65f - target.ref_nation.perCapitaGDP / 1000f);
 								__result *= faction.aiValues.preserveLife;
 							}
 							break;
 						case "ResistSmuggleArms":
-							__result = 2f;
 							if (target.ref_region.IsOccupied()) {
 								__result = -1f;
 								break;
@@ -138,10 +138,11 @@ namespace factionMissions.AIEvaluations {
 								__result = -1f;
 							}
 							else {
-								__result = faction.aiValues.wantSpaceFacilities * (6 - faction.MissionControlBalance) + 30f * target.ref_nation.missionControl;
+								__result = faction.aiValues.wantSpaceFacilities * (10 * (6 - faction.MissionControlBalance) + 30 * Math.Min(50, target.ref_nation.missionControl));
 							}
 							break;
 						case "ExploitIgnoreEcologicalProtections":
+							// Easier to pull off closer to a value of 5, towards the midpoint
 							float tempHold = -1f * (Math.Abs(5-target.ref_nation.democracy)-3f);
 							if (tempHold < 0f) {
 								tempHold = UnityEngine.Mathf.Pow(Math.Abs(tempHold), 2.73f) * -1f;
@@ -154,10 +155,16 @@ namespace factionMissions.AIEvaluations {
 							__result = tempHold * 3f + UnityEngine.Mathf.Pow(target.ref_nation.inequality, 1.3f);
 							__result *= 2 * UnityEngine.Mathf.Pow((target.ref_nation.perCapitaGDP/1000f + 30f)/30f, 1.72f);
 							// Per capita modifier goes 2, ~5, ~8.5, ~25, ~48 at 0, 20K, 40K, 100K and 160K respectively
-							__result *= faction.aiValues.gatherMoney * (1/faction.aiValues.lifeTechs);
+							// Around max values (so best-case for it being 'easy'-- is 1914.87277888)
+
+							// Now we modify by amount of money they have
+							tempHold = faction.GetYearlyIncome(FactionResource.Money, true, true) - 200;
+							float tempHold2 = faction.resources.GetValueOrDefault(FactionResource.Money) - 250;
+							float tempHold3 = faction.aiValues.gatherMoney * -1 * (tempHold2 * 5f + tempHold);
+							__result *= tempHold3 * (1/faction.aiValues.lifeTechs);
 							break;
 						case "StudyShareResearch":
-							__result = -1;
+							__result = -50f;
 							foreach(TIControlPoint CP in target.ref_nation.controlPoints) {
 								if (CP.owned) {
 									if (CP.faction != faction) {
@@ -165,10 +172,35 @@ namespace factionMissions.AIEvaluations {
 										// Instead going to simply go by research/month and the 'who's in the lead' score ranking
 										float temphold = CP.faction.GetAnnualInfluenceCostOfNextControlPoint(CP.nation)/CP.faction.GetBaselineControlPointMaintenanceCost(false);
 										temphold *= CP.faction.GetMonthlyIncome(FactionResource.Research, dontRecalculate:true, suppressFactionResourcesUpdatedEvent:true);
+										if (CP.faction.permanentAlly(faction)) {
+											temphold *= 2f;
+										}
+										switch (CP.faction.GetDiplomacyMood(faction)) {
+											case "Tolerance":
+												__result += temphold;
+												break;
+											case "Conflicted":
+												__result -= temphold * 0.5f;
+												break;
+											case "War":
+												__result -= temphold * 0.8f;
+												break;
+											default:
+												break;
+										}
 										
 									}
 								}
 							}
+							float tempo = target.ref_nation.education;
+							if (tempo < 7) {
+								tempo = Mathf.Pow(tempo + 2f, 2.1f)-35f;
+							}
+							else {
+								tempo = 10f * Mathf.Pow(tempo, 1.2f) - 37.4f;
+							}
+							__result = 5f * __result + 2f * tempo + Mathf.Pow((target.ref_nation.perCapitaGDP / 1000f + 20f)/30f, 1.72f)/7f;;
+							__result *= faction.aiValues.gatherScience;
 							break;
 						case "StudyEducatePopulace":
 							tempHold = 7.5f - target.ref_nation.education;
