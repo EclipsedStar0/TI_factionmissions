@@ -1,0 +1,143 @@
+// # // # // # The following must be done when creating a new mission:
+// # // # // #  Step 1: Add the name of the mission to a list-- seperate lists for each faction; 
+// # // # // #  Step 2 (requiredPatches.CouncilorFactionSetPatch)- Giving Councillors faction-specific missions: Using [HarmonyPatch(typeof(TICouncilorState), nameof(TICouncilorState.SetFaction))] and PostFix, first ensure that your list exists
+// # // # // #      Step A: Iterate over each faction list and do __instance.learnedMissions.Remove(TemplateManager.Find<TIMissionTemplate>(Main.TheNameOfYourFactionMissionListHere[index], false)); to remove your missions
+// # // # // #      Step B: Now iterate through each faction using faction.template.dataName.Equals("factionNameHere") until it lands on true, meaning this is the faction that councillor is in
+// # // # // #      Step C: Iterate through each mission in that faction's list and do __instance.LearnMission(TemplateManager.Find<TIMissionTemplate>(Main.TheNameOfYourFactionMissionListHere[index], false)); to add them to that councillor's known missions
+// # // # // #  Step 3 (requiredPatches.ResolveMissionEffectPatch)- Making your custom missions have custom effects on completion
+// # // # // #      Step A: Use [HarmonyPatch(typeof(TIMissionState), nameof(TIMissionState.ResolveMission))] with a Prefix
+// # // # // #      Step B: See if you the mission being called matches one in your list
+// # // # // #      Step C: If not, return true, to allow the base-game/other mods' code to run
+// # // # // #          -Otherwise, do the following and then return false
+// # // # // #          Step a: Copy-paste base function code all the way down until: if (__instance.missionTemplate.targetEffects != null)
+// # // # // #          Step b: Now for each mission, do the following:
+// # // # // # 
+// # // # // # 			string ret = "";
+// # // # // # 			TIMissionEffect miEffect;
+// # // # // #
+// # // # // #          if (missionDataName.Equals("NameOfCustomMissionHere")) {
+// # // # // #			    miEffect = new factionMissions.MissionEffects.NameOfCustomMissionFunctionHere();
+// # // # // #			    ret = miEffect.ApplyEffect(__instance, __instance.target, missionResult.missionResult);
+// # // # // #		    }
+// # // # // #
+// # // # // #          Step c: Copy-paste from where you left off to if (__instance.missionTemplate.councilorEffects != null)
+// # // # // #          Step d: ^ This is another entry point for mission effects, but now for councillors? Not sure why this exists to be honest
+// # // # // #          step e: Copy-paste from where you left off to:
+// # // # // #          if (missionResult.Attempted)
+// # // # // #          {
+// # // # // #              if (__instance.missionTemplate.targetEffects != null)
+// # // # // #              {
+// # // # // #          step f: This serves as an entry point for writing mission effects for if the mission was ATTEMPTED (so like, for objectives/achievements)
+// # // # // #          step g: --As seen in step c and d, right after step e is the entry point for councillor effects
+// # // # // #          step h: Copy paste from where you left off to: __instance.missionOutcome = missionResult.missionResult;
+// # // # // #          step i: Now set __result to missionResult
+// # // # // #          step j: return false
+// # // # // #  Step 4: (requiredPatches.getAllModifiersHeaderPatch)- Have custom mission modifiers apply to missions
+// # // # // #      Step A: Use [HarmonyPatch(typeof(TIMissionResolution_Contested), "GetAllModifiers")] with a PostFix
+// # // # // #      Step B: If statement for attack/defense
+// # // # // #      Step C: See if the mission being done is in any of your faction mission lists-- preferably, do this by placing all of them in a dictionary with a key being the mission name and the value being the factionName for that mission 
+// # // # // #      Step D: Use: 
+// # // # // #          TIMissionModifier missionModifier;
+// # // # // #
+// # // # // #          missionModifier = new yourCustomMissionModifierFunctionHere();
+// # // # // #          __result.Add(missionModifier);
+// # // # // #      Step E: Repeat for additional modifiers
+// # // # // #  Step 5: (requiredPatches.validTargetNationHeaderPatch)- (Using postfix) [HarmonyPatch(typeof(TIMissionTarget_Nation), nameof(TIMissionTarget_Nation.ValidateSingleTarget))]
+// # // # // #      Step A: Check if the mission is in your master list of missions
+// # // # // #      Step B: If so, do checks to see if a faction mission list contains that mission
+// # // # // #      Step C: Now do if statements for each faction mission
+// # // # // #          TIMissionCondition condition = new MissionConditions.yourCustomMissionConditionHere();
+// # // # // #			__result.Add(condition.CanTarget(councilor, target));
+// # // # // #  Step 6: Step 5 but do Region instead of Nation
+// # // # // #  Step 7: (AIEvaluations.PayoffTarget_FactionHeaderPatch)- Have AI choose to use custom missions
+// # // # // #      Step A: Use Postfix and [HarmonyPatch(typeof(AICouncilorMissionPlanner), nameof(AICouncilorMissionPlanner.GetPayoffForMissionTarget_Faction))]
+// # // # // #      Step B: Important to know:
+// # // # // #          // High Priority = ~4000
+// # // # // #          // Moderate Priority = ~2000
+// # // # // #          // Baseline 'I'm here' = ~1000
+// # // # // #          // Anything lower are 'Don't pick me'
+// # // # // #          // Never Pick = less than 0 (-1)
+// # // # // #          // Non-Vanilla = -999
+// # // # // #      Step C: See if the payoff/weight (__result) is -999. If it is, that means a non-vanilla mission got called
+// # // # // #      Step D: Check to see if that mission is in your master mission list
+// # // # // #      Step E: Do switch statements with the missionDataName as the value and each case being the name of a customMission
+// # // # // #      Step F: Perform whatever calculations you want to determine the weight AI has to pick that mission
+// # // # // #      Step G: Set __result equal to that value
+// # // # // #  Step 8: Setup your missionTemplate document
+// # // # // #  
+// # // # // #
+// # // # // #  Creating custom Mission Modifiers?
+// # // # // #  public class yourCustomMissionModifierFunctionNameHere : TIMissionModifier
+// # // # // #  {
+// # // # // #      public override float GetModifier(TICouncilorState attackingCouncilor, TIGameState target = null, float resourcesSpent = 0, FactionResource resource = FactionResource.None)
+// # // # // #      {
+// # // # // #          // Perform calculations to determine modifier amount
+// # // # // #          return yourCalculatedOrFlatModifierAmountHere
+// # // # // #      }
+// # // # // #  }
+// # // # // #
+// # // # // #  Creating custom Mission Conditions?
+// # // # // #  public class yourCustomMissionConditionFunctionNameHere : TIMissionCondition
+// # // # // #  {
+// # // # // #      public override string CanTarget(TICouncilorState councilor, TIGameState possibleTarget)
+// # // # // #      {
+// # // # // #          if (theRequiredConditionForThisMissionToBeAllowed) {
+// # // # // #              return "_Pass";
+// # // # // #          }
+// # // # // #          else {
+// # // # // #              return "TheReasonForWhyThisMissionIsNotAllowed"
+// # // # // #          }
+// # // # // #      }
+// # // # // #  }
+// # // # // #
+// # // # // #
+// # // # // #  Creating custom Mission Effects?
+// # // # // #
+// # // # // #  public class yourCustomMissionEffectFunctionNameHere : TIMissionEffect
+// # // # // #    {
+// # // # // #        public override string ApplyEffect(TIMissionState mission, TIGameState target, TIMissionOutcome outcome = TIMissionOutcome.Success)
+// # // # // #        {
+// # // # // #			StringBuilder builder = new StringBuilder("");
+// # // # // #			if (outcome == TIMissionOutcome.Success || outcome == TIMissionOutcome.CriticalSuccess) {
+// # // # // #				// Effects for general Success here, can optionally then do for crit success as well
+// # // # // #              // Write your localisation for mission results/effects here by adding them to builder
+// # // # // #              builder.Append("\nThe people of "+mission.ref_nation.displayName+" appreciate us performing this mission.)
+// # // # // #			}
+// # // # // #			else {
+// # // # // #				if (outcome == TIMissionOutcome.CriticalFailure) {
+// # // # // #                  // Effects on Crif Fail here
+// # // # // #                  // Write your localisation for mission results/effects here by adding them to builder
+// # // # // #                  builder.Append("\nThe people of "+mission.ref_nation.displayName+" dislike us performing this mission.)
+// # // # // #				}
+// # // # // #			}
+// # // # // #			return builder.ToString();
+// # // # // #        }
+// # // # // #    }
+// # // # // #
+// # // # // #
+// # // # // #  Helpful note-- most icons can be found in TemplateManager.global.
+// # // # // #      Icons are generally placed infront of the value they represent so a money sign in front of the amount of money
+// # // # // #
+// # // # // #
+// # // # // #
+// # // # // #
+// # // # // #
+// # // # // #
+// # // # // #
+// # // # // #
+// # // # // #
+// # // # // #
+// # // # // #
+// # // # // #
+// # // # // #
+// # // # // #
+// # // # // #
+// # // # // #
+// # // # // #
+// # // # // #
+// # // # // #
+// # // # // #
+// # // # // #
+// # // # // #
+// # // # // #
+// # // # // #  
