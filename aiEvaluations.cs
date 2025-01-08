@@ -22,7 +22,16 @@ namespace factionMissions.AIEvaluations {
 					// Non-Vanilla = -999
 					switch (missionDataName) {
 						case "DestroyRaiseMilitia":
-							if (target.ref_nation.atWar) {
+							List<TIFactionGoalState> factionGoals =  faction.GoalsWithTarget(target.ref_nation);
+							int badGoal = 0;
+							foreach (TIFactionGoalState factGoal in factionGoals) {
+								if (factGoal.GetGoalType() == GoalType.NeutralizeNation) {
+									badGoal = 1;
+									break;
+								}
+							}
+
+							if (target.ref_nation.atWar && badGoal == 0) {
 								__result = 10f + factionMissions.utilityFunctions.UtilityModule.warStrength(target.ref_nation);
 								__result *= faction.aiValues.wantEarthWarCapability;
 							}
@@ -31,11 +40,39 @@ namespace factionMissions.AIEvaluations {
 							}
 							break;
 						case "ResistPeacekeepers":
+							badGoal = 0;
+							float goalSupportVal = 1f;
+							factionGoals = faction.GoalsWithTarget(target.ref_nation);
+							foreach (TIFactionGoalState factGoal in factionGoals) {
+								if (factGoal.GetGoalType() == GoalType.NeutralizeNation) {
+									badGoal = 1;
+									break;
+								}
+								else if (factGoal.GetGoalType() == GoalType.MilitarizeNation) {
+									goalSupportVal = 1.25f;
+								}
+							}
+							if (badGoal == 1) {
+								__result = -1f;
+								break;
+							}
 							__result = 0.50f * AICouncilorMissionPlanner.ControlNationPayoff(faction, target.ref_region.nation.FirstNativeControlPoint(), controlPointPayoffs, campaignDuration_years);
-							__result += 60f * UnityEngine.Mathf.Pow(target.ref_nation.unrest, 1.65f) * Math.Max(1f, target.ref_nation.unrest)/Math.Max(1f, target.ref_nation.unrestRestState);
+							__result += goalSupportVal * 60f * UnityEngine.Mathf.Pow(target.ref_nation.unrest, 1.65f) * Math.Max(1f, target.ref_nation.unrest)/Math.Max(1f, target.ref_nation.unrestRestState);
 							break;
 						case "ResistCellNetwork":
 							if (!Main.settings.cellnetworksAllowed) {
+								__result = -1f;
+								break;
+							}
+							badGoal = 0;
+							factionGoals = faction.GoalsWithTarget(target.ref_nation);
+							foreach (TIFactionGoalState factGoal in factionGoals) {
+								if (factGoal.GetGoalType() == GoalType.PillageNation) {
+									badGoal = 1;
+									break;
+								}
+							}
+							if (badGoal == 1) {
 								__result = -1f;
 								break;
 							}
@@ -86,16 +123,48 @@ namespace factionMissions.AIEvaluations {
 							}
 							break;
 						case "ResistHumanitarianMission":
+							badGoal = 0;
+							goalSupportVal = 1f;
+							factionGoals = faction.GoalsWithTarget(target.ref_nation);
+							foreach (TIFactionGoalState factGoal in factionGoals) {
+								if (factGoal.GetGoalType() == GoalType.PillageNation || factGoal.GetGoalType() == GoalType.NeutralizeNation) {
+									badGoal = 1;
+									break;
+								}
+								else if (factGoal.GetGoalType() == GoalType.DevelopNation) {
+									goalSupportVal = 1.25f;
+								}
+							}
+							if (badGoal == 1) {
+								__result = -1f;
+								break;
+							}
 							if (target.ref_nation.inequality < 3f && target.ref_nation.perCapitaGDP > 160000) {
 								__result -= 1f;
 							}
 							else {
 								__result = (235f - target.ref_nation.population_Millions) / 50f + (4f - target.ref_nation.inequality * 2f) + 5f * (65f - target.ref_nation.perCapitaGDP / 1000f);
-								__result *= faction.aiValues.preserveLife;
+								__result *= faction.aiValues.preserveLife * goalSupportVal;
 							}
 							break;
 						case "ResistSmuggleArms":
 							if (target.ref_region.IsOccupied()) {
+								__result = -1f;
+								break;
+							}
+							badGoal = 0;
+							goalSupportVal = 1f;
+							factionGoals = faction.GoalsWithTarget(target.ref_nation);
+							foreach (TIFactionGoalState factGoal in factionGoals) {
+								if (factGoal.GetGoalType() == GoalType.NeutralizeNation) {
+									badGoal = 1;
+									break;
+								}
+								else if (factGoal.GetGoalType() == GoalType.MilitarizeNation) {
+									goalSupportVal = 1.75f;
+								}
+							}
+							if (badGoal == 1) {
 								__result = -1f;
 								break;
 							}
@@ -120,14 +189,22 @@ namespace factionMissions.AIEvaluations {
 							if (target.ref_region.OccupationUnderwayButNotComplete()) {
 								__result *= 10f;
 							}
-							__result *= faction.aiValues.wantEarthWarCapability;
+							__result *= faction.aiValues.wantEarthWarCapability * goalSupportVal;
 							break;
 						case "EscapeFundSpaceProgram":
 							if (target.ref_nation.spaceFlightProgram) {
 								__result = -1f;
 							}
 							else {
-								__result = faction.aiValues.wantSpaceFacilities * target.ref_nation.BaseInvestmentPoints_month() * 10f/Math.Max(0.25f, target.ref_nation.BestBoostLatitude);
+								goalSupportVal = 1f;
+								factionGoals = faction.GoalsWithTarget(target.ref_nation);
+								foreach (TIFactionGoalState factGoal in factionGoals) {
+									if (factGoal.GetGoalType() == GoalType.SpaceifyNation) {
+										goalSupportVal = 1.5f;
+										break;
+									}
+								}
+								__result = goalSupportVal * faction.aiValues.wantSpaceFacilities * target.ref_nation.BaseInvestmentPoints_month() * 10f/Math.Max(0.25f, target.ref_nation.BestBoostLatitude);
 								// Hypothetical 'best' case, could be 2 * 50 * 10/0.25 = 4000
 
 								// This WILL be blown out if linearity investment points are present; Wherein 'best' case would essentially be this times 60;
@@ -138,10 +215,38 @@ namespace factionMissions.AIEvaluations {
 								__result = -1f;
 							}
 							else {
-								__result = faction.aiValues.wantSpaceFacilities * (10 * (6 - faction.MissionControlBalance) + 30 * Math.Min(50, target.ref_nation.missionControl));
+								goalSupportVal = 1f;
+								factionGoals = faction.GoalsWithTarget(target.ref_nation);
+								foreach (TIFactionGoalState factGoal in factionGoals) {
+									if (factGoal.GetGoalType() == GoalType.SpaceifyNation) {
+										goalSupportVal = 1.5f;
+										break;
+									}
+								}
+								__result = goalSupportVal * faction.aiValues.wantSpaceFacilities * (10 * (6 - faction.MissionControlBalance) + 30 * Math.Min(50, target.ref_nation.missionControl));
 							}
 							break;
 						case "ExploitIgnoreEcologicalProtections":
+							badGoal = 0;
+							goalSupportVal = 1f;
+							factionGoals = faction.GoalsWithTarget(target.ref_nation);
+							foreach (TIFactionGoalState factGoal in factionGoals) {
+								if (factGoal.GetGoalType() == GoalType.DevelopNation) {
+									badGoal = 1;
+									break;
+								}
+								else if (factGoal.GetGoalType() == GoalType.PillageNation) {
+									goalSupportVal = 1.75f;
+								}
+								else if (factGoal.GetGoalType() == GoalType.NeutralizeNation) {
+									goalSupportVal = 1.15f;
+								}
+							}
+							if (badGoal == 1) {
+								__result = -1f;
+								break;
+							}
+
 							// Easier to pull off closer to a value of 5, towards the midpoint
 							float tempHold = -1f * (Math.Abs(5-target.ref_nation.democracy)-3f);
 							if (tempHold < 0f) {
@@ -161,7 +266,7 @@ namespace factionMissions.AIEvaluations {
 							tempHold = faction.GetYearlyIncome(FactionResource.Money, true, true) - 200;
 							float tempHold2 = faction.resources.GetValueOrDefault(FactionResource.Money) - 250;
 							float tempHold3 = faction.aiValues.gatherMoney * -1 * (tempHold2 * 5f + tempHold);
-							__result *= tempHold3 * (1/faction.aiValues.lifeTechs);
+							__result *= goalSupportVal * tempHold3 * (1/faction.aiValues.lifeTechs);
 							break;
 						case "StudyShareResearch":
 							__result = -50f;
