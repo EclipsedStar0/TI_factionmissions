@@ -10,8 +10,8 @@ namespace factionMissions.AIEvaluations {
 	public static class PayoffTarget_FactionHeaderPatch {
 		[HarmonyPostfix]
 		public static void Postfix(float __result, ref TIFactionState faction, ref TIMissionTemplate mission, ref TIGameState target, ref List<CampaignMilestone> factionDesiredMilestones, ref Dictionary<TIControlPoint, float> rawControlPointPayoffs, ref Dictionary<TIControlPoint, float> controlPointPayoffs, ref Dictionary<TINationState, float> rawNationPayoffs,ref Dictionary<TINationState, float> nationPayoffs, ref float campaignDuration_years) {
+			// Notice: __result == -999 means the game has flagged it as a Non-Vanalia Mission OR a mission targetting a Councillor, giving it <0 means it will NEVER be picked in PayOff>
 			if (__result == -999) {
-				// This means the game has flagged it as a Non-Vanalia Mission, giving it -999 means it will NEVER be picked in PayOff
 				String missionDataName = mission.dataName;
 				if (Main.masterMissionList.Contains(missionDataName)) {
 					// High Priority = ~4000
@@ -20,6 +20,7 @@ namespace factionMissions.AIEvaluations {
 					// Anything lower are 'Don't pick me'
 					// Never Pick = less than 0 (-1)
 					// Non-Vanilla = -999
+					int cameFromAnotherMission = 0;
 					switch (missionDataName) {
 						case "DestroyRaiseMilitia":
 							List<TIFactionGoalState> factionGoals =  faction.GoalsWithTarget(target.ref_nation);
@@ -272,13 +273,13 @@ namespace factionMissions.AIEvaluations {
 							__result = -50f;
 							foreach(TIControlPoint CP in target.ref_nation.controlPoints) {
 								if (CP.owned) {
+									// NOT going to calculate total research via projects completed and their cost because that would be resource-expensive
+									// Instead going to simply go by research/month and the 'who's in the lead' score ranking
+									float temphold = CP.faction.GetAnnualInfluenceCostOfNextControlPoint(CP.nation)/CP.faction.GetBaselineControlPointMaintenanceCost(false);
+									temphold *= CP.faction.GetMonthlyIncome(FactionResource.Research, dontRecalculate:true, suppressFactionResourcesUpdatedEvent:true);
 									if (CP.faction != faction) {
-										// NOT going to calculate total research via projects completed and their cost because that would be resource-expensive
-										// Instead going to simply go by research/month and the 'who's in the lead' score ranking
-										float temphold = CP.faction.GetAnnualInfluenceCostOfNextControlPoint(CP.nation)/CP.faction.GetBaselineControlPointMaintenanceCost(false);
-										temphold *= CP.faction.GetMonthlyIncome(FactionResource.Research, dontRecalculate:true, suppressFactionResourcesUpdatedEvent:true);
 										if (CP.faction.permanentAlly(faction)) {
-											temphold *= 2f;
+											temphold *= 1.5f;
 										}
 										switch (CP.faction.GetDiplomacyMood(faction)) {
 											case "Tolerance":
@@ -293,7 +294,13 @@ namespace factionMissions.AIEvaluations {
 											default:
 												break;
 										}
-										
+									}
+									else {
+										temphold *= 1.5f;
+										if (cameFromAnotherMission == 1) {
+											temphold *= 2.5f;
+										}
+										__result += temphold;
 									}
 								}
 							}
@@ -308,19 +315,151 @@ namespace factionMissions.AIEvaluations {
 							__result *= faction.aiValues.gatherScience;
 							break;
 						case "StudyEducatePopulace":
-							tempHold = 7.5f - target.ref_nation.education;
-							if (tempHold < 0f) {
-								tempHold = 500f + -1f * UnityEngine.Mathf.Pow(6f* Math.Abs(tempHold), 2.15f);
+							badGoal = 0;
+							goalSupportVal = 1f;
+							factionGoals = faction.GoalsWithTarget(target.ref_nation);
+							foreach (TIFactionGoalState factGoal in factionGoals) {
+								if (factGoal.GetGoalType() == GoalType.PillageNation || factGoal.GetGoalType() == GoalType.NeutralizeNation) {
+									badGoal = 1;
+									break;
+								}
+								else if (factGoal.GetGoalType() == GoalType.PillageNation) {
+									goalSupportVal = 1.75f;
+								}
+								else if (factGoal.GetGoalType() == GoalType.NeutralizeNation) {
+									goalSupportVal = 1.15f;
+								}
+							}
+							if (badGoal == 1) {
+								__result = -1f;
+								break;
+							}
+							__result = 7.5f - target.ref_nation.education;
+							if (__result < 0f) {
+								__result = 500f + -1f * UnityEngine.Mathf.Pow(6f* Math.Abs(__result), 2.15f);
 							}
 							else {
-								tempHold = 500f + UnityEngine.Mathf.Pow(10f * Math.Abs(tempHold), 1.89f);
+								__result = 500f + UnityEngine.Mathf.Pow(10f * Math.Abs(__result), 1.89f);
 							}
 							__result *= faction.aiValues.informationTechs;
 							//Goes ~4000 at 0, ~2400 at 2, ~1300 at 4, ~667 at 6, 500 at 7.5, ~490 at 8, ~170 at 10, Negative at 10.47104
 							break;
 						case "StudyTechSummit":
-							break;
+							badGoal = 0;
+							goalSupportVal = 1f;
+							factionGoals = faction.GoalsWithTarget(target.ref_nation);
+							foreach (TIFactionGoalState factGoal in factionGoals) {
+								if (factGoal.GetGoalType() == GoalType.PillageNation || factGoal.GetGoalType() == GoalType.NeutralizeNation) {
+									badGoal = 1;
+									break;
+								}
+								else if (factGoal.GetGoalType() == GoalType.DevelopNation) {
+									goalSupportVal = 1.5f;
+								}
+							}
+							if (badGoal == 1) {
+								__result = -1f;
+								break;
+							}
+							cameFromAnotherMission = 1;
+							goto case "StudyShareResearch";
 						case "ServeProselytiseCouncillors":
+							__result = 0f;
+							if (target.ref_councilor.faction == faction) {
+								__result = -1f;
+								break;
+							}
+							// Not having this means we don't even have faction/identity/class
+							if (!faction.HasMemoryOnCouncilorBasicData(target.ref_councilor)) {
+								__result = -1f;
+								break;
+							}
+							float neccessityToLower = 0;
+							switch (faction.GetDiplomacyMood(target.ref_councilor.faction)) {
+								case "Tolerance":
+									neccessityToLower -= 2f;
+									break;
+								case "Conflicted":
+									neccessityToLower += 1f;
+									break;
+								case "War":
+									neccessityToLower += 2f;
+									break;
+								default:
+									break;
+							}
+							if (faction.enemyTotalWarFactions.Contains(target.ref_councilor.faction)) {
+								neccessityToLower += 4f;
+							}
+							else if (faction.enemyWarFactions.Contains(target.ref_councilor.faction)) {
+								neccessityToLower += 2f;
+							}
+							if (faction.mostPowerfulHumanEnemy == target.ref_councilor.faction) {
+								switch (faction.selfAssessement) {
+									case FactionSelfAssessment.LosingBig:
+										neccessityToLower += 3f;
+										break;
+									case FactionSelfAssessment.Losing:
+										neccessityToLower += 1.5f;
+										break;
+									case FactionSelfAssessment.Even:
+										neccessityToLower += 0f;
+										break;
+									case FactionSelfAssessment.Ahead:
+										neccessityToLower -= 1.5f;
+										break;
+									case FactionSelfAssessment.WayAhead:
+										neccessityToLower -= 3f;
+										break;
+								}
+							}
+							float targetAttriScore = 0;
+							float tempAdmin = target.ref_councilor.GetAttribute(CouncilorAttribute.Administration, adminForOrgControl:true);
+							float perc = target.ref_councilor.availableAdministration/tempAdmin;
+							if (target.ref_councilor.turned) {
+								neccessityToLower -= 2f;
+							}
+
+							if (faction.HasMemoryOnCouncilorDetails(target.ref_councilor)) {
+								if (target.ref_councilor.learnedMissionsTemplateNames.Contains("Inspire")) {
+									targetAttriScore += target.ref_councilor.GetAttribute(CouncilorAttribute.Persuasion) * 2f;
+								}
+								else {
+									targetAttriScore += target.ref_councilor.GetAttribute(CouncilorAttribute.Persuasion);
+								}
+
+								if (faction.IsInTechRace) {
+									targetAttriScore += target.ref_councilor.GetAttribute(CouncilorAttribute.Science) * 3f;
+								}
+								else {
+									targetAttriScore += target.ref_councilor.GetAttribute(CouncilorAttribute.Science);
+								}
+
+								if (target.ref_councilor.learnedMissionsTemplateNames.Contains("InvestigateCouncilor")) {
+									targetAttriScore += target.ref_councilor.GetAttribute(CouncilorAttribute.Investigation) * 3f;
+								}
+								else {
+									targetAttriScore += target.ref_councilor.GetAttribute(CouncilorAttribute.Investigation) * 1.25f;
+								}
+
+								targetAttriScore += target.ref_councilor.GetAttribute(CouncilorAttribute.Command);
+								if (target.ref_councilor.learnedMissionsTemplateNames.Contains("Assassinate")) {
+									targetAttriScore += target.ref_councilor.GetAttribute(CouncilorAttribute.Espionage) * 3f;
+								}
+								else {
+									targetAttriScore += target.ref_councilor.GetAttribute(CouncilorAttribute.Espionage) * 1.25f;
+								}
+
+								targetAttriScore += target.ref_councilor.GetAttribute(CouncilorAttribute.Security) * 0.5f;
+								if (faction.HasMemoryOnCouncilorSecrets(target.ref_councilor)) {
+									targetAttriScore += target.ref_councilor.GetAttribute(CouncilorAttribute.Loyalty) * 5f;
+								}
+								else {
+									targetAttriScore += target.ref_councilor.GetAttribute(CouncilorAttribute.ApparentLoyalty) * 5f;
+								}
+								targetAttriScore += 30f * (1-perc);
+							}
+							__result = targetAttriScore * (neccessityToLower + targetAttriScore/40f) * 10f;
 							break;
 						default:
 							break;
@@ -329,6 +468,22 @@ namespace factionMissions.AIEvaluations {
 			}
 		}
 	}
+
+	[HarmonyPatch(typeof(AICouncilorMissionPlanner), nameof(AICouncilorMissionPlanner.GetPayoffForMissionTarget_Individual))]
+	public static class PayoffTarget_IndividualHeaderPatch {
+		[HarmonyPostfix]
+		public static void Postfix(float __result, ref TIFactionState faction, ref TIMissionTemplate mission, ref TICouncilorState councilor, ref TIGameState target, ref List<TIMissionTemplate> requiredMissions, ref List<TIMissionTemplate> missingRequiredMissions, ref Dictionary<TINationState, float> nationPayoffs, ref bool huntingForAlienActivity, ref float huntAbility, ref List<TIFactionState> warFactions, ref TIRegionState recentAlienSite, ref float timeSinceAlienSite_days) {
+			// Notice: Missions here are ones not caught by PayoffTarget_FactionHeaderPatch, GetPayoffForMissionTarget_Faction, or GetPayoffForMissionTarget_Individual 
+			if (__result == 0) {
+				String missionDataName = mission.dataName;
+				if (Main.masterMissionList.Contains(missionDataName)) {
+				
+				}
+			}
+		}
+	}
+
+	// This is checking to see the 'Worth' of a nation; Evidently, we want to make sure nations with cell-networks have a higher worth given the time/resources invested into establishing said networks
 	[HarmonyPatch(typeof(AIEvaluators), nameof(AIEvaluators.EvaluateNation))]
 	public static class EvalNationHeader {
 		[HarmonyPostfix]

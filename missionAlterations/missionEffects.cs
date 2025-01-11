@@ -1691,7 +1691,7 @@ namespace factionMissions.MissionEffects {
 
 	
 	// Think of this as the INSPIRE mission, with the caveat that it can only be used on Councillors not owned by you.
-	// Success = Decrease target-councillors' loyalty; (Increases loyalty for allies); Failure = Increase target-councillors' loyalty.
+	// Success = Decrease target-councillors' loyalty; (Increases loyalty for allies); Critical Failure = Increase target-councillors' loyalty.
 	public class TIMissionEffect_ServeProselytiseCouncillors : TIMissionEffect
     {
         public override string ApplyEffect(TIMissionState mission, TIGameState target, TIMissionOutcome outcome = TIMissionOutcome.Success)
@@ -1717,11 +1717,8 @@ namespace factionMissions.MissionEffects {
 				float friendlyCPs = utilityFunctions.UtilityModule.getNumFriendlyCps(mission.ref_nation, mission.ref_councilor.faction);
 				modifier += friendlyCPs/4f;
 				modifier *= (1f + friendlyCPs)/(1f + mission.ref_nation.numControlPoints);
-				// Max modifier can reach is 5 in a normal game, which equates to a max of 6-8, or 7-10
+				// Max modifier can reach is 5 in a normal game, which equates to a max of 6-8 (Normal Success), or 7-10 (Crits)
 				loyaltyChange += modifier;
-
-
-				// Max modifier can reach in a normal game (for crits) is 4.75 += (1, 3), and 4.75 += (2, 4)
 
 				CouncilorView viewofCouncilor = mission.councilor.faction.GetViewofCouncilor(mission.ref_councilor);
 				float attribute = viewofCouncilor.GetAttribute(CouncilorAttribute.ApparentLoyalty);
